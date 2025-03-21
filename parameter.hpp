@@ -5,6 +5,10 @@
 #include <array>
 #include <functional>
 
+#ifndef CGX_PARAMETER_PRINT_BUFFER_SIZE
+#define CGX_PARAMETER_PRINT_BUFFER_SIZE 64
+#endif
+
 namespace cgx{
 namespace parameter {
 
@@ -13,7 +17,9 @@ class parameter_i {
         virtual ~parameter_i() = default;
         virtual bool set_bytes(const uint8_t* src, size_t size) = 0;
         virtual bool get_bytes(uint8_t* dst, size_t size) const = 0;
+
         virtual int to_char(char* dst, size_t size) const = 0;
+        virtual void print() const = 0;
 
         virtual void reset() = 0;
 
@@ -29,8 +35,11 @@ template <typename T>
 class parameter : virtual public parameter_i {
     public:
         parameter() = default;
-        parameter(const T& default_value) 
-            : m_default(default_value) {}
+        parameter(
+                std::function<void(const char*)> print, 
+                const T& default_value) 
+            : m_default(default_value)
+            , m_print(print) {}
         parameter(const parameter&) = default;
         virtual ~parameter() = default;
 
@@ -54,6 +63,46 @@ class parameter : virtual public parameter_i {
             return m_value.to_char(dst, size);
         }
 
+        void print() const override {
+            if (m_print == nullptr) {
+                return;
+            }
+            char buffer[CGX_PARAMETER_PRINT_BUFFER_SIZE];
+            to_char(buffer, sizeof(buffer));
+            m_print(buffer);
+
+            uint8_t bytes[sizeof(T)];
+            if (this->get_bytes(bytes, sizeof(bytes))) {
+                constexpr size_t group_size = 8;
+                char dst[3*group_size + 6];
+                int n = 0;
+                for (size_t i = 0; i < sizeof(T); ++i) {
+                    if (i % group_size == 0) {
+                        n += snprintf(
+                                dst + n, 
+                                sizeof(dst) - n, 
+                                "  |- ");
+                        if (n < 0 || n >= sizeof(dst)) {
+                            m_print("error");
+                            break;
+                        }
+                    }
+                    n += snprintf(dst + n, sizeof(dst) - n, " %02X", bytes[i]);
+                    if (n < 0 || n >= sizeof(dst)) {
+                        m_print("error");
+                        break;
+                    }
+                    if (i % group_size == group_size - 1) {
+                        m_print(dst);
+                        n = 0;
+                    }
+                }
+                if (n > 0) {
+                    m_print(dst);
+                }
+            }
+        }
+
         operator T() const {
             return m_value;
         }
@@ -68,6 +117,9 @@ class parameter : virtual public parameter_i {
         }
 
         bool set_value(const T& value) {
+            if (m_value == value) {
+                return true;
+            }
             m_value = value;
             if (m_on_changed) {
                 m_on_changed();
@@ -79,10 +131,14 @@ class parameter : virtual public parameter_i {
             set_value(m_default);
         }
 
-    private:
-        const T m_default{};
-        T m_value{m_default};
+        void set_print(std::function<void(const char*)> print) {
+            m_print = print;
+        }
 
+    protected:
+        T m_default{};
+        T m_value{m_default};
+        std::function<void(const char*)> m_print{nullptr};
 };
 
 template <>
@@ -104,10 +160,26 @@ template <typename T, size_t N>
 class parameter<std::array<T, N>> : virtual public parameter_i {
     public:
         parameter() = default;
-        parameter(const T& default_value) 
-            : m_default(default_value) {reset();}
-        parameter(const std::array<T, N>& default_value) 
-            : m_default(default_value[0]) {reset();}
+        parameter(std::function<void(const char*)> print,
+                const T& default_value) 
+            : m_print(print) {
+            std::fill(
+                    m_value.begin(), 
+                    m_value.end(), 
+                    parameter<T>(
+                        m_print, 
+                        default_value
+                    )
+                );
+        }
+        parameter(std::function<void(const char*)> print,
+                const std::array<T, N>& default_value) 
+            : m_print(print) {
+            size_t i = 0;
+            for (auto& value : m_value) {
+                value = parameter<T>(m_print, default_value[i++]);
+            }
+        }
         parameter(const parameter&) = default;
         virtual ~parameter() = default;
 
@@ -122,40 +194,109 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
         }
 
         bool get_bytes(uint8_t* dst, size_t size) const override {
-            (void)dst;
-            (void)size;
-            //if (size != sizeof(std::array<T, N>)) {
-            //    return false;
-            //}
-            //*reinterpret_cast<std::array<T, N>*>(dst) = m_value;
+            if (size != sizeof(std::array<T, N>)) {
+                return false;
+            }
+            for (auto& value : m_value) {
+                value.get_bytes(dst, sizeof(T));
+                dst += sizeof(T);
+            }
             return true;
         }
 
+        bool get_bytes(size_t index, uint8_t* dst, size_t size) const {
+            if (index >= N) {
+                return false;
+            }
+            return m_value[index].get_bytes(dst, size);
+        }
+
         int to_char(char* dst, size_t size) const override {
-            int n = snprintf(dst, size, "array:");
+            int n = snprintf(dst, size, "array<%zu>", N);
             if (n < 0) {
                 return n;
             }
             if (n >= size) {
                 return n;
             }
+            return n;
+        }
+
+        void print() const override {
+            if (m_print == nullptr) {
+                return;
+            }
+            {
+                char buffer[16 * N];
+                int n = this->to_char(buffer, sizeof(buffer));
+                if (n < 0) {
+                    m_print("error");
+                    return;
+                }
+                if (n >= sizeof(buffer)) {
+                    m_print("buffer overflow");
+                    return;
+                }
+                m_print(buffer);
+            }
+
+            char buffer[CGX_PARAMETER_PRINT_BUFFER_SIZE];
             for (size_t i = 0; i < N; ++i) {
-                n += snprintf(
-                        dst + n,
-                        size - n,
-                        "\n  |- [%*zu] ",
-                        N <= 10 ? 1 : 2,
+                int n = snprintf(
+                        buffer, 
+                        sizeof(buffer), 
+                        "  |- [%*zu] ", 
+                        N <= 10 ? 1 : 2, 
                         i
                     );
-                n += m_value[i].to_char(dst + n, size - n);
                 if (n < 0) {
-                    return n;
+                    continue;
                 }
-                if (n >= size) {
-                    return n;
+                if (n >= sizeof(buffer)) {
+                    continue;
+                }
+
+                n += m_value[i].to_char(buffer + n, sizeof(buffer) - n);
+                if (n < 0) {
+                    continue;
+                }
+                if (n >= sizeof(buffer)) {
+                    continue;
+                }
+
+                m_print(buffer);
+
+                uint8_t bytes[sizeof(T)];
+                if (m_value[i].get_bytes(bytes, sizeof(bytes))) {
+                    constexpr size_t group_size = 8;
+                    char dst[3*group_size + 9];
+                    int n = 0;
+                    for (size_t i = 0; i < sizeof(T); ++i) {
+                        if (i % group_size == 0) {
+                            n += snprintf(
+                                    dst + n, 
+                                    sizeof(dst) - n, 
+                                    "  |  |- ");
+                            if (n < 0 || n >= sizeof(dst)) {
+                                m_print("error");
+                                break;
+                            }
+                        }
+                        n += snprintf(dst + n, sizeof(dst) - n, " %02X", bytes[i]);
+                        if (n < 0 || n >= sizeof(dst)) {
+                            m_print("error");
+                            break;
+                        }
+                        if (i % group_size == group_size - 1) {
+                            m_print(dst);
+                            n = 0;
+                        }
+                    }
+                    if (n > 0) {
+                        m_print(dst);
+                    }
                 }
             }
-            return n;
         }
 
         operator std::array<T, N>() const {
@@ -167,6 +308,15 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
             return *this;
         }
 
+        parameter<std::array<T, N>>& operator=(const T& value) {
+            set_value(value);
+            return *this;
+        }
+
+        parameter<T>& operator[](size_t index) {
+            return m_value[index];
+        }
+
         const std::array<T, N>& value() const {
             return m_value;
         }
@@ -175,9 +325,6 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
             for (size_t i = 0; i < N; ++i) {
                 m_value[i] = value[i];
             }
-            if (m_on_changed) {
-                m_on_changed();
-            }
             return true;
         }
 
@@ -185,18 +332,23 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
             for (size_t i = 0; i < N; ++i) {
                 m_value[i] = value;
             }
-            if (m_on_changed) {
-                m_on_changed();
-            }
             return true;
         }
 
         void reset() override {
-            set_value(m_default);
+            for (auto& value : m_value) {
+                value.reset();
+            }
         }
 
-    private:
-        const T m_default{};
+        void on_changed(std::function<void()> callback) override {
+            for (auto& value : m_value) {
+                value.on_changed(callback);
+            }
+        }
+
+    protected:
+        std::function<void(const char*)> m_print{nullptr};
         std::array<parameter<T>, N> m_value;
 };
 
@@ -210,15 +362,20 @@ class unique_parameter_i : virtual public parameter_i {
 template <typename T, uint32_t uidT>
 class unique_parameter : public unique_parameter_i, public parameter<T> {
     public:
-        unique_parameter() = delete;
-        unique_parameter(const T& value) : parameter<T>(value) {}
-        unique_parameter(const unique_parameter&) = delete;
+        unique_parameter() = default;
+        unique_parameter(std::function<void(const char*)> print,
+                const T& value) : parameter<T>(print, value) {}
+        unique_parameter(const unique_parameter&) = default;
         virtual ~unique_parameter() = default;
 
         using parameter<T>::operator T;
         using parameter<T>::operator=;
         using parameter<T>::value;
         using parameter<T>::reset;
+        using parameter<T>::set_value;
+        using parameter<T>::set_bytes;
+        using parameter<T>::get_bytes;
+        using parameter<T>::print;
 
         uint32_t uid() const override {
             return uidT;
@@ -232,29 +389,30 @@ class unique_parameter : public unique_parameter_i, public parameter<T> {
             if (n >= size) {
                 return n;
             }
-            n += parameter<T>::to_char(dst + n, size - n);
 
-            // print raw bytes
-            uint8_t buffer[sizeof(T)];
-            if (parameter<T>::get_bytes(buffer, sizeof(buffer))) {
-                n += snprintf(dst + n, size - n, "\n  *bytes:");
-                for (size_t i = 0; i < sizeof(T); ++i) {
-                    n += snprintf(dst + n, size - n, " %02X", buffer[i]);
-                }
+            n += parameter<T>::to_char(dst + n, size - n);
+            if (n < 0) {
+                return n;
             }
+            if (n >= size) {
+                return n;
+            }
+
             return n;
         }
+
 };
 
 class unique_parameter_list {
     public:
-        template <size_t bufSizeT = 1024, typename TPrint>
-        void print(TPrint&& print) const {
+        unique_parameter_list() = delete;
+        unique_parameter_list(std::function<void(const char*)> print) 
+            : m_print(print) {}
+
+        void print() const {
             for (const auto& param : m_params) {
                 if (param) {
-                    char buffer[bufSizeT];
-                    param->to_char(buffer, sizeof(buffer));
-                    print(buffer);
+                    param->print();
                 }
             }
         }
@@ -262,6 +420,7 @@ class unique_parameter_list {
         template <uint32_t uidT, typename T>
         auto& add(const T& value) {
             m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(
+                m_print,
                 value
             );
             return *reinterpret_cast<unique_parameter<T, uidT>*>(
@@ -280,6 +439,8 @@ class unique_parameter_list {
     private:
         std::array<std::unique_ptr<unique_parameter_i>, 32> m_params;
         size_t m_size = 0;
+
+        std::function<void(const char*)> m_print{nullptr};
 };
 
 } // namespace cgx::parameter
