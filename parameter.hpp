@@ -474,28 +474,32 @@ class parameter<char[N]> : virtual public parameter_i {
         std::function<void(const char*)> m_print{nullptr};
 };
 
-class unique_parameter_i : virtual public parameter_i {
+} // namespace cgx::parameter
+
+class unique_parameter_i : virtual public parameter::parameter_i {
     public:
         virtual ~unique_parameter_i() = default;
         virtual uint32_t uid() const = 0;
 };
 
 template <typename T, uint32_t uidT>
-class unique_parameter : public unique_parameter_i, public parameter<T> {
+class unique_parameter 
+        : public unique_parameter_i
+        , public parameter::parameter<T> {
     public:
         unique_parameter() = default;
         unique_parameter(std::function<void(const char*)> print,
-                const T& value) : parameter<T>(print, value) {}
+                const T& value) : parameter::parameter<T>(print, value) {}
         unique_parameter(const unique_parameter&) = default;
         virtual ~unique_parameter() = default;
 
-        using parameter<T>::operator=;
-        using parameter<T>::value;
-        using parameter<T>::reset;
-        using parameter<T>::set_value;
-        using parameter<T>::set_bytes;
-        using parameter<T>::get_bytes;
-        using parameter<T>::print;
+        using parameter::parameter<T>::operator=;
+        using parameter::parameter<T>::value;
+        using parameter::parameter<T>::reset;
+        using parameter::parameter<T>::set_value;
+        using parameter::parameter<T>::set_bytes;
+        using parameter::parameter<T>::get_bytes;
+        using parameter::parameter<T>::print;
 
         uint32_t uid() const override {
             return uidT;
@@ -510,7 +514,7 @@ class unique_parameter : public unique_parameter_i, public parameter<T> {
                 return n;
             }
 
-            n += parameter<T>::to_char(dst + n, size - n);
+            n += parameter::parameter<T>::to_char(dst + n, size - n);
             if (n < 0) {
                 return n;
             }
@@ -523,6 +527,7 @@ class unique_parameter : public unique_parameter_i, public parameter<T> {
 
 };
 
+template <size_t N>
 class unique_parameter_list {
     public:
         unique_parameter_list() = delete;
@@ -539,10 +544,49 @@ class unique_parameter_list {
 
         template <uint32_t uidT, typename T>
         auto& add(const T& value) {
+            static_assert(
+                    std::is_trivially_copyable<T>::value, 
+                    "T must be trivially copyable"
+                );
+            static_assert(
+                    std::is_trivially_destructible<T>::value, 
+                    "T must be trivially destructible"
+                );
+
+            if (m_size >= m_params.size()) {
+                m_size -= 1;
+                m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(
+                    m_print,
+                    value
+                );
+                if (m_print) {
+                    m_print("parameter list full when adding:");
+                    m_params[m_size - 1]->print();
+                }
+                assert("parameter list full" && m_size < m_params.size());
+                return *reinterpret_cast<unique_parameter<T, uidT>*>(
+                    m_params[m_size - 1].get()
+                );
+            }
+
+            auto p = this->find(uidT);
             m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(
                 m_print,
                 value
             );
+
+            if (p != nullptr) {
+                if (m_print) {
+                    m_print("conflicting parameters:");
+                    p->print();
+                    m_params[m_size - 1]->print();
+                }
+                assert("UID already exists" && p == nullptr);
+                return *reinterpret_cast<unique_parameter<T, uidT>*>(
+                    m_params[m_size - 1].get()
+                );
+            }
+
             return *reinterpret_cast<unique_parameter<T, uidT>*>(
                 m_params[m_size - 1].get()
             );
@@ -556,23 +600,29 @@ class unique_parameter_list {
             }
         }
 
+        bool uid_exists(uint32_t uid) const {
+            for (const auto& param : m_params) {
+                if (param && param->uid() == uid) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
     private:
-        std::array<std::unique_ptr<unique_parameter_i>, 32> m_params;
+        std::array<std::unique_ptr<unique_parameter_i>, N> m_params;
         size_t m_size = 0;
 
         std::function<void(const char*)> m_print{nullptr};
+
+        unique_parameter_i* find(uint32_t uid) {
+            for (auto& param : m_params) {
+                if (param && param->uid() == uid) {
+                    return param.get();
+                }
+            }
+            return nullptr;
+        }
 };
-
-} // namespace cgx::parameter
-
-template <uint32_t uidT, typename T>
-auto make_param(const T& value) {
-    return parameter::unique_parameter<T, uidT>(value);
-}
-
-template <uint32_t uidT, typename T>
-auto& make_param(parameter::unique_parameter_list& list, const T& value) {
-    return list.add<uidT>(value);
-}
 
 } // namespace cgx

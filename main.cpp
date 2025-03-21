@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "parameter.hpp"
+#include "my_params.hpp"
 
 struct custom_type {
     int a;
@@ -19,17 +19,17 @@ void custom_printer(const char* str) {
     std::cout << str << std::endl;
 }
 
-cgx::parameter::unique_parameter_list params(custom_printer);
+cgx::unique_parameter_list<10> params(custom_printer);
 
 auto& integer = params.add<0>(42);
 auto& boolean = params.add<1>(false);
 auto& custom = params.add<2>(custom_type{1, 2});
-auto& text = params.add<5>("hello");
-auto& array = cgx::make_param<3>(params, std::array<int, 3>{
+auto& text = params.add<5>(__DATE__ " " __TIME__);
+auto& array = params.add<3>(std::array<int, 3>{
     1,
     5,
 });
-auto& custom_array = cgx::make_param<4>(params, []() {
+auto& custom_array = params.add<4>([]() {
     std::array<custom_type, 2> arr;
     for (size_t i = 0; i < 2; ++i) {
         arr[i] = custom_type{1, static_cast<int>(i)};
