@@ -4,6 +4,7 @@
 #include <memory>
 #include <array>
 #include <functional>
+#include <cassert>
 
 #ifndef CGX_PARAMETER_PRINT_BUFFER_SIZE
 #define CGX_PARAMETER_PRINT_BUFFER_SIZE 64
@@ -81,7 +82,7 @@ class parameter : virtual public parameter_i {
                         n += snprintf(
                                 dst + n, 
                                 sizeof(dst) - n, 
-                                "  |- ");
+                                "   + ");
                         if (n < 0 || n >= sizeof(dst)) {
                             m_print("error");
                             break;
@@ -249,18 +250,12 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
                         N <= 10 ? 1 : 2, 
                         i
                     );
-                if (n < 0) {
-                    continue;
-                }
-                if (n >= sizeof(buffer)) {
+                if (n < 0 || n >= sizeof(buffer)) {
                     continue;
                 }
 
                 n += m_value[i].to_char(buffer + n, sizeof(buffer) - n);
-                if (n < 0) {
-                    continue;
-                }
-                if (n >= sizeof(buffer)) {
+                if (n < 0 || n >= sizeof(buffer)) {
                     continue;
                 }
 
@@ -276,7 +271,7 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
                             n += snprintf(
                                     dst + n, 
                                     sizeof(dst) - n, 
-                                    "  |  |- ");
+                                    "  |   + ");
                             if (n < 0 || n >= sizeof(dst)) {
                                 m_print("error");
                                 break;
@@ -314,7 +309,22 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
         }
 
         parameter<T>& operator[](size_t index) {
+            assert(index < N);
             return m_value[index];
+        }
+
+        auto begin() {
+            return m_value.begin();
+        }
+        auto begin() const {
+            return m_value.begin();
+        }
+
+        auto end() {
+            return m_value.end();
+        }
+        auto end() const {
+            return m_value.end();
         }
 
         const std::array<T, N>& value() const {
@@ -352,6 +362,117 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
         std::array<parameter<T>, N> m_value;
 };
 
+template <size_t N>
+class parameter<char[N]> : virtual public parameter_i {
+    public:
+        parameter() = default;
+        parameter(std::function<void(const char*)> print,
+                const char* default_value) 
+            : m_print(print) {
+            std::copy(default_value, default_value + N, m_default);
+            set_value(default_value);
+        }
+        parameter(const parameter&) = default;
+        virtual ~parameter() = default;
+
+        bool set_bytes(const uint8_t* src, size_t size) override {
+            if (size != N) {
+                return false;
+            }
+            set_value(reinterpret_cast<const char*>(src));
+            return true;
+        }
+
+        bool get_bytes(uint8_t* dst, size_t size) const override {
+            if (size != N) {
+                return false;
+            }
+            std::copy(m_value, m_value + N, dst);
+            return true;
+        }
+
+        int to_char(char* dst, size_t size) const override {
+            return snprintf(dst, size, "char[%zu]: %s", N, m_value);
+        }
+
+        void print() const override {
+            if (m_print == nullptr) {
+                return;
+            }
+            char buffer[CGX_PARAMETER_PRINT_BUFFER_SIZE];
+            to_char(buffer, sizeof(buffer));
+            m_print(buffer);
+
+            uint8_t bytes[N];
+            if (this->get_bytes(bytes, sizeof(bytes))) {
+                constexpr size_t group_size = 8;
+                char dst[3*group_size + 6];
+                int n = 0;
+                for (size_t i = 0; i < N; ++i) {
+                    if (i % group_size == 0) {
+                        n += snprintf(
+                                dst + n, 
+                                sizeof(dst) - n, 
+                                "   + ");
+                        if (n < 0 || n >= sizeof(dst)) {
+                            m_print("error");
+                            break;
+                        }
+                    }
+                    n += snprintf(dst + n, sizeof(dst) - n, " %02X", bytes[i]);
+                    if (n < 0 || n >= sizeof(dst)) {
+                        m_print("error");
+                        break;
+                    }
+                    if (i % group_size == group_size - 1) {
+                        m_print(dst);
+                        n = 0;
+                    }
+                }
+                if (n > 0) {
+                    m_print(dst);
+                }
+            }
+        }
+
+        operator const char*() const {
+            return m_value;
+        }
+
+        parameter<char[N]>& operator=(const char* value) {
+            set_value(value);
+            return *this;
+        }
+
+        const char* value() const {
+            return m_value;
+        }
+
+        bool set_value(const char* value) {
+            if (strcmp(m_value, value) == 0) {
+                return true;
+            }
+            size_t len = strlen(value);
+            if (len >= N) {
+                len = N - 1;
+            }
+            std::copy(value, value + len + 1, m_value);
+            m_value[N - 1] = '\0';
+            if (m_on_changed) {
+                m_on_changed();
+            }
+            return true;
+        }
+
+        void reset() override {
+            set_value(m_default);
+        }
+
+    protected:
+        char m_default[N]{};
+        char m_value[N]{};
+        std::function<void(const char*)> m_print{nullptr};
+};
 
 class unique_parameter_i : virtual public parameter_i {
     public:
@@ -368,7 +489,6 @@ class unique_parameter : public unique_parameter_i, public parameter<T> {
         unique_parameter(const unique_parameter&) = default;
         virtual ~unique_parameter() = default;
 
-        using parameter<T>::operator T;
         using parameter<T>::operator=;
         using parameter<T>::value;
         using parameter<T>::reset;

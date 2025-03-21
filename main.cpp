@@ -19,33 +19,49 @@ void custom_printer(const char* str) {
     std::cout << str << std::endl;
 }
 
+cgx::parameter::unique_parameter_list params(custom_printer);
+
+auto& integer = params.add<0>(42);
+auto& boolean = params.add<1>(false);
+auto& custom = params.add<2>(custom_type{1, 2});
+auto& text = params.add<5>("hello");
+auto& array = cgx::make_param<3>(params, std::array<int, 3>{
+    1,
+    5,
+});
+auto& custom_array = cgx::make_param<4>(params, []() {
+    std::array<custom_type, 2> arr;
+    for (size_t i = 0; i < 2; ++i) {
+        arr[i] = custom_type{1, static_cast<int>(i)};
+    }
+    return arr;
+}());
+
 int main() {
     using namespace cgx::parameter;
-    unique_parameter_list params(custom_printer);
-
-    auto& integer = cgx::make_param<0>(params, 42);
-    auto& boolean = cgx::make_param<1>(params, false);
-    auto& custom = cgx::make_param<2>(params, custom_type{1, 2});
-    auto& array = cgx::make_param<3>(params, std::array<int, 3>{
-        1,
-        5,
-    });
-    auto& custom_array = cgx::make_param<4>(params, []() {
-        std::array<custom_type, 20> arr;
-        for (size_t i = 0; i < 20; ++i) {
-            arr[i] = custom_type{1, static_cast<int>(i)};
-        }
-        return arr;
-    }());
 
     integer.on_changed([]() {
-        std::cout << "integer changed" << std::endl;
+        std::cout << "integer changed: " << integer << std::endl;
     });
     boolean.on_changed([]() {
-        std::cout << "boolean changed" << std::endl;
+        std::cout << "boolean changed:" << std::endl << "  ";
+        boolean.print();
+    });
+    array.on_changed([]() {
+        std::cout << "array changed:" << std::endl;
+        for (const auto& value : array) {
+            std::cout << "  " << value << std::endl;
+        }
     });
     custom_array.on_changed([]() {
-        std::cout << "custom_array changed" << std::endl;
+        std::cout << "custom_array changed:" << std::endl;
+        for (const auto& value : custom_array) {
+            std::cout << "  ";
+            value.print();
+        }
+    });
+    text.on_changed([]() {
+        std::cout << "text changed: " << text << std::endl;
     });
 
     integer.print();
@@ -56,10 +72,16 @@ int main() {
     std::cout << std::endl;
 
     std::cout << "change parameters:" << std::endl;
-    integer = 420;
+    integer = integer + 420;
     boolean = true;
     custom = custom_type{3, 4};
-    custom_array[2] = custom_type{2, 2};
+    custom_array[0] = custom_type{2, 2};
+    text = "good bye";
+
+    for (auto& value : array) {
+        value = value + 10;
+    }
+
     params.print();
     std::cout << std::endl;
 
