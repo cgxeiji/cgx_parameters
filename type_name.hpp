@@ -5,6 +5,7 @@
 
 #include <string>
 #include <string_view>
+#include <functional>
 #include <array>   // std::array
 #include <utility> // std::index_sequence
 
@@ -57,4 +58,3 @@ constexpr auto type_name() -> std::string_view
   constexpr auto& value = type_name_holder<T>::value;
   return std::string_view{value.data(), value.size()};
 }
-

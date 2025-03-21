@@ -4,6 +4,8 @@
 #include <functional>
 #include <iostream>
 
+#include "type_name.hpp"
+
 class complex_class {
     public:
         complex_class() = default;
@@ -32,7 +34,9 @@ class complex_class {
                     return n;
                 }
             }
-            n += snprintf(dst + n, size - n, "fn: %s", m_fn.target_type().name());
+            n += snprintf(dst + n, size - n, "fn: %s", 
+                    m_fn.target_type().name()
+                );
             if (n < 0 || static_cast<size_t>(n) >= size) {
                 return n;
             }
