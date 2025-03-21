@@ -56,7 +56,7 @@ class parameter : virtual public parameter_i {
             if (size != sizeof(T)) {
                 return false;
             }
-            *reinterpret_cast<T*>(dst) = m_value;
+            std::memcpy(dst, &m_value, sizeof(T));
             return true;
         }
 
@@ -116,6 +116,9 @@ class parameter : virtual public parameter_i {
         const T& value() const {
             return m_value;
         }
+        T& value() {
+            return m_value;
+        }
 
         bool set_value(const T& value) {
             if (m_value == value) {
@@ -144,17 +147,17 @@ class parameter : virtual public parameter_i {
 
 template <>
 int parameter<int>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "int: %d", m_value);
+    return snprintf(dst, size, "%d", m_value);
 }
 
 template <>
 int parameter<float>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "float: %f", m_value);
+    return snprintf(dst, size, "%f", m_value);
 }
 
 template <>
 int parameter<bool>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "bool: %s", m_value ? "true" : "false");
+    return snprintf(dst, size, "%s", m_value ? "true" : "false");
 }
 
 template <typename T, size_t N>
@@ -328,6 +331,9 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
         }
 
         const std::array<T, N>& value() const {
+            return m_value;
+        }
+        std::array<T, N>& value() {
             return m_value;
         }
 
@@ -506,7 +512,10 @@ class unique_parameter
         }
 
         int to_char(char* dst, size_t size) const override {
-            int n = snprintf(dst, size, "(p%08X) ", this->uid());
+            int n = snprintf(dst, size, "(p%08X) %s: ", 
+                    this->uid(),
+                    typeid(T).name()
+                );
             if (n < 0) {
                 return n;
             }
@@ -544,15 +553,6 @@ class unique_parameter_list {
 
         template <uint32_t uidT, typename T>
         auto& add(const T& value) {
-            static_assert(
-                    std::is_trivially_copyable<T>::value, 
-                    "T must be trivially copyable"
-                );
-            static_assert(
-                    std::is_trivially_destructible<T>::value, 
-                    "T must be trivially destructible"
-                );
-
             if (m_size >= m_params.size()) {
                 m_size -= 1;
                 m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(

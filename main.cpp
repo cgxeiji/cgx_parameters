@@ -7,7 +7,7 @@ struct custom_type {
     int b;
 
     int to_char(char* dst, size_t size) const {
-        return snprintf(dst, size, "custom_type: a=%d, b=%d", a, b);
+        return snprintf(dst, size, "a=%d, b=%d", a, b);
     }
 
     bool operator==(const custom_type& other) const {
@@ -37,38 +37,18 @@ auto& custom_array = params.add<4>([]() {
     return arr;
 }());
 
+auto& complex = params.add<100>(complex_class{});
+
 int main() {
     using namespace cgx::parameter;
 
-    integer.on_changed([]() {
-        std::cout << "integer changed: " << integer << std::endl;
-    });
-    boolean.on_changed([]() {
-        std::cout << "boolean changed:" << std::endl << "  ";
-        boolean.print();
-    });
-    array.on_changed([]() {
-        std::cout << "array changed:" << std::endl;
-        for (const auto& value : array) {
-            std::cout << "  " << value << std::endl;
-        }
-    });
-    custom_array.on_changed([]() {
-        std::cout << "custom_array changed:" << std::endl;
-        for (const auto& value : custom_array) {
-            std::cout << "  ";
-            value.print();
-        }
-    });
-    text.on_changed([]() {
-        std::cout << "text changed: " << text << std::endl;
+    complex.on_changed([]() {
+        std::cout << "complex changed:" << std::endl << "  ";
+        complex.print();
     });
 
     integer.print();
-    boolean.print();
-    custom.print();
-    array.print();
-    custom_array.print();
+    params.print();
     std::cout << std::endl;
 
     std::cout << "change parameters:" << std::endl;
@@ -78,20 +58,31 @@ int main() {
     custom_array[0] = custom_type{2, 2};
     text = "good bye";
 
+    complex.value().set_fn([](float value) {
+        std::cout << "custom fn: " << value << std::endl;
+    });
+    complex.value().set_value(3.14f);
+
     for (auto& value : array) {
         value = value + 10;
     }
 
-    params.print();
+    complex.print();
+    //params.print();
     std::cout << std::endl;
 
     std::cout << "resetting all parameters:" << std::endl;
     params.reset();
-    params.print();
+    complex.print();
+    //params.print();
     std::cout << std::endl;
 
     std::cout << "resetting again:" << std::endl;
     params.reset();
+    complex.value().set_value(2.71f);
+    complex.print();
+    complex.value().set_fn(nullptr);
+    complex.print();
     return 0;
 }
 
