@@ -6,8 +6,10 @@
 #include <functional>
 #include <cassert>
 
+#include "type_name.hpp"
+
 #ifndef CGX_PARAMETER_PRINT_BUFFER_SIZE
-#define CGX_PARAMETER_PRINT_BUFFER_SIZE 64
+#define CGX_PARAMETER_PRINT_BUFFER_SIZE 128
 #endif
 
 namespace cgx{
@@ -230,8 +232,8 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
             if (m_print == nullptr) {
                 return;
             }
-            {
-                char buffer[16 * N];
+            [&]() {
+                char buffer[CGX_PARAMETER_PRINT_BUFFER_SIZE];
                 int n = this->to_char(buffer, sizeof(buffer));
                 if (n < 0) {
                     m_print("error");
@@ -242,7 +244,7 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
                     return;
                 }
                 m_print(buffer);
-            }
+            }();
 
             char buffer[CGX_PARAMETER_PRINT_BUFFER_SIZE];
             for (size_t i = 0; i < N; ++i) {
@@ -398,7 +400,7 @@ class parameter<char[N]> : virtual public parameter_i {
         }
 
         int to_char(char* dst, size_t size) const override {
-            return snprintf(dst, size, "char[%zu]: %s", N, m_value);
+            return snprintf(dst, size, "%s", m_value);
         }
 
         void print() const override {
@@ -514,7 +516,7 @@ class unique_parameter
         int to_char(char* dst, size_t size) const override {
             int n = snprintf(dst, size, "(p%08X) %s: ", 
                     this->uid(),
-                    typeid(T).name()
+                    type_name<T>().data()
                 );
             if (n < 0) {
                 return n;
