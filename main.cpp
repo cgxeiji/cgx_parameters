@@ -3,19 +3,26 @@
 #include "my_params.hpp"
 
 bool cgx::parameter::set_bytes(
-    size_t   lun,
-    uint32_t uid,
-    const uint8_t*,
-    size_t len
+    size_t         lun,
+    uint32_t       uid,
+    const uint8_t* src,
+    size_t         len
 ) {
-    std::cout << "[s] " << "lun: " << lun << " uid: " << uid << " len: " << len
-              << std::endl;
+    std::cout << "[s] " << "lun: " << lun << " uid: " << std::hex << uid
+              << " src: [";
+
+    for (size_t i = 0; i < len; i++) {
+        std::cout << " " << std::hex << static_cast<uint32_t>(src[i]);
+    }
+
+    std::cout << " ]" << std::endl;
+
     return true;
 };
 
 bool cgx::parameter::get_bytes(size_t lun, uint32_t uid, uint8_t*, size_t len) {
-    std::cout << "[g] " << "lun: " << lun << " uid: " << uid << " len: " << len
-              << std::endl;
+    std::cout << "[g] " << "lun: " << lun << " uid: " << std::hex << uid
+              << " len: " << len << std::endl;
     return false;
 };
 
