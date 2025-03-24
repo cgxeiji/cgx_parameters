@@ -21,7 +21,17 @@ bool cgx::parameter::set_bytes(
     std::cout << " ]" << std::endl;
 
     std::stringstream ss;
-    ss << "./stored/p" << std::hex << uid << ".bin";
+    switch (lun) {
+        case 0:
+            ss << "./stored/p" << std::hex << uid << ".bin";
+            break;
+        case 1:
+            ss << "./stored/s" << std::hex << uid << ".bin";
+            break;
+        default:
+            return false;
+    }
+
     std::fstream s{ss.str(), s.binary | s.trunc | s.in | s.out};
     if (!s.is_open()) {
         std::cout << "failed to open " << ss.str() << std::endl;
@@ -41,7 +51,16 @@ bool cgx::parameter::get_bytes(
     size_t   len
 ) {
     std::stringstream ss;
-    ss << "./stored/p" << std::hex << uid << ".bin";
+    switch (lun) {
+        case 0:
+            ss << "./stored/p" << std::hex << uid << ".bin";
+            break;
+        case 1:
+            ss << "./stored/s" << std::hex << uid << ".bin";
+            break;
+        default:
+            return false;
+    }
 
     std::cout << "reading: " << ss.str() << std::endl;
 
@@ -50,8 +69,6 @@ bool cgx::parameter::get_bytes(
         std::cout << "failed to open " << ss.str() << std::endl;
         return false;
     }
-
-    // s.read(reinterpret_cast<char*>(dst), len);
     std::fread(dst, sizeof(dst[0]), len, f);
     std::fclose(f);
 
@@ -85,8 +102,9 @@ void custom_printer(const char* str) {
 }
 
 cgx::unique_parameter_list<0, 10> params(custom_printer);
+cgx::unique_parameter_list<1, 10> params2(custom_printer);
 
-auto& integer      = params.add<0>(42);
+auto& integer      = params2.add<0>(42);
 auto& boolean      = params.add<1>(false);
 auto& custom       = params.add<2>(custom_type{1, 2});
 auto& text         = params.add<5>(__DATE__ " " __TIME__);
@@ -108,14 +126,15 @@ int main() {
     using namespace cgx::parameter;
 
     params.init();
+    params2.init();
 
     complex.on_changed([]() {
         std::cout << "complex changed:" << std::endl << "  ";
         complex.print();
     });
 
-    integer.print();
     params.print();
+    params2.print();
     std::cout << std::endl;
 
     std::cout << "change parameters:" << std::endl;
@@ -136,12 +155,14 @@ int main() {
 
     complex.print();
     // params.print();
+    params2.print();
     std::cout << std::endl;
 
     std::cout << "resetting all parameters:" << std::endl;
     params.reset();
     complex.print();
     // params.print();
+    params2.print();
     std::cout << std::endl;
 
     integer = 123;
@@ -153,6 +174,8 @@ int main() {
     complex.print();
     complex.value().set_fn(nullptr);
     complex.print();
+
+    params2.print();
     return 0;
 }
 

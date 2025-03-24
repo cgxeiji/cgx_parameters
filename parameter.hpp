@@ -470,6 +470,9 @@ extern bool get_bytes(size_t lun, uint32_t uid, uint8_t* dst, size_t len);
 
 class storable_parameter_i {
    public:
+    storable_parameter_i() = default;
+    storable_parameter_i(size_t lun) : m_lun(lun) {
+    }
     virtual ~storable_parameter_i() = default;
 
     virtual bool store()    = 0;
@@ -500,6 +503,8 @@ class unique_parameter_i
     : virtual public parameter::parameter_i
     , public storable_parameter_i {
    public:
+    unique_parameter_i(size_t lun) : storable_parameter_i(lun) {
+    }
     virtual ~unique_parameter_i() = default;
     virtual uint32_t uid() const  = 0;
 };
@@ -512,6 +517,13 @@ class unique_parameter
     unique_parameter() = default;
     unique_parameter(std::function<void(const char*)> print, const T& value)
         : parameter::parameter<T>(print, value) {
+    }
+    unique_parameter(
+        std::function<void(const char*)> print,
+        size_t                           lun,
+        const T&                         value
+    )
+        : parameter::parameter<T>(print, value), unique_parameter_i(lun) {
     }
     unique_parameter(const unique_parameter&) = default;
     virtual ~unique_parameter()               = default;
@@ -639,8 +651,9 @@ class unique_parameter_list {
     auto& add(const T& value) {
         if (m_size >= m_params.size()) {
             m_size -= 1;
-            m_params[m_size++] =
-                std::make_unique<unique_parameter<T, uidT>>(m_print, value);
+            m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(
+                m_print, LUN, value
+            );
             if (m_print) {
                 m_print("parameter list full when adding:");
                 m_params[m_size - 1]->print();
@@ -653,7 +666,7 @@ class unique_parameter_list {
 
         auto p = this->find(uidT);
         m_params[m_size++] =
-            std::make_unique<unique_parameter<T, uidT>>(m_print, value);
+            std::make_unique<unique_parameter<T, uidT>>(m_print, LUN, value);
 
         if (p != nullptr) {
             if (m_print) {
