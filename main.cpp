@@ -1,4 +1,7 @@
+#include <fstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 
 #include "my_params.hpp"
 
@@ -17,13 +20,51 @@ bool cgx::parameter::set_bytes(
 
     std::cout << " ]" << std::endl;
 
+    std::stringstream ss;
+    ss << "./stored/p" << std::hex << uid << ".bin";
+    std::fstream s{ss.str(), s.binary | s.trunc | s.in | s.out};
+    if (!s.is_open()) {
+        std::cout << "failed to open " << ss.str() << std::endl;
+        return true;
+    }
+
+    s.seekp(0);
+    s.write(reinterpret_cast<const char*>(src), len);
+
     return true;
 };
 
-bool cgx::parameter::get_bytes(size_t lun, uint32_t uid, uint8_t*, size_t len) {
+bool cgx::parameter::get_bytes(
+    size_t   lun,
+    uint32_t uid,
+    uint8_t* dst,
+    size_t   len
+) {
+    std::stringstream ss;
+    ss << "./stored/p" << std::hex << uid << ".bin";
+
+    std::cout << "reading: " << ss.str() << std::endl;
+
+    std::FILE* f = std::fopen(ss.str().c_str(), "r");
+    if (!f) {
+        std::cout << "failed to open " << ss.str() << std::endl;
+        return false;
+    }
+
+    // s.read(reinterpret_cast<char*>(dst), len);
+    std::fread(dst, sizeof(dst[0]), len, f);
+    std::fclose(f);
+
     std::cout << "[g] " << "lun: " << lun << " uid: " << std::hex << uid
-              << " len: " << len << std::endl;
-    return false;
+              << " dst: [";
+
+    for (size_t i = 0; i < len; i++) {
+        std::cout << " " << std::hex << static_cast<uint32_t>(dst[i]);
+    }
+
+    std::cout << " ]" << std::endl;
+
+    return true;
 };
 
 struct custom_type {
@@ -102,6 +143,9 @@ int main() {
     complex.print();
     // params.print();
     std::cout << std::endl;
+
+    integer = 123;
+    integer.store();
 
     std::cout << "resetting again:" << std::endl;
     params.reset();

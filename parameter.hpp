@@ -529,7 +529,7 @@ class unique_parameter
         }
 
         if (this->retrieve()) {
-            this->validate();
+            this->set_valid(true);
             return true;
         }
 
@@ -548,10 +548,28 @@ class unique_parameter
     }
 
     bool store() override {
+        uint8_t on_store[sizeof(T)];
+        bool    ok = cgx::parameter::get_bytes(
+            this->get_lun(), this->uid(), on_store, sizeof(T)
+        );
+
         uint8_t buffer[sizeof(T)];
         if (!this->get_bytes(buffer, sizeof(T))) {
             return false;
         }
+
+        if (ok) {
+            for (size_t i = 0; i < sizeof(T); i++) {
+                if (buffer[i] != on_store[i]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                return true;
+            }
+        }
+
         if (!cgx::parameter::set_bytes(
                 this->get_lun(), this->uid(), buffer, sizeof(T)
             )) {
