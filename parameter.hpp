@@ -468,7 +468,37 @@ extern bool get_bytes(size_t lun, uint32_t uid, uint8_t* dst, size_t len);
 
 }  // namespace parameter
 
-class unique_parameter_i : virtual public parameter::parameter_i {
+class storable_parameter_i {
+   public:
+    virtual ~storable_parameter_i() = default;
+
+    virtual bool store()    = 0;
+    virtual bool retrieve() = 0;
+    virtual bool validate() = 0;
+
+    void set_lun(size_t lun) {
+        m_lun = lun;
+    }
+    size_t get_lun() const {
+        return m_lun;
+    }
+
+    bool is_valid() const {
+        return m_valid;
+    }
+
+    void set_valid(bool valid) {
+        m_valid = valid;
+    }
+
+   protected:
+    size_t m_lun{0};
+    bool   m_valid{false};
+};
+
+class unique_parameter_i
+    : virtual public parameter::parameter_i
+    , public storable_parameter_i {
    public:
     virtual ~unique_parameter_i() = default;
     virtual uint32_t uid() const  = 0;
@@ -492,6 +522,44 @@ class unique_parameter
     using parameter::parameter<T>::print;
     using parameter::parameter<T>::set_bytes;
     using parameter::parameter<T>::get_bytes;
+
+    bool validate() override {
+        if (this->is_valid()) {
+            return true;
+        }
+
+        if (this->retrieve()) {
+            this->validate();
+            return true;
+        }
+
+        this->reset();
+        return this->store();
+    }
+
+    bool retrieve() override {
+        uint8_t buffer[sizeof(T)];
+        if (!cgx::parameter::get_bytes(
+                this->get_lun(), this->uid(), buffer, sizeof(T)
+            )) {
+            return false;
+        }
+        return this->set_bytes(buffer, sizeof(T));
+    }
+
+    bool store() override {
+        uint8_t buffer[sizeof(T)];
+        if (!this->get_bytes(buffer, sizeof(T))) {
+            return false;
+        }
+        if (!cgx::parameter::set_bytes(
+                this->get_lun(), this->uid(), buffer, sizeof(T)
+            )) {
+            return false;
+        }
+        this->set_valid(true);
+        return true;
+    }
 
     uint32_t uid() const override {
         return uidT;
@@ -526,6 +594,19 @@ class unique_parameter_list {
     unique_parameter_list() = delete;
     unique_parameter_list(std::function<void(const char*)> print)
         : m_print(print) {
+    }
+
+    bool init() {
+        for (const auto& param : m_params) {
+            if (!param) {
+                continue;
+            }
+            if (!param->validate()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     void print() const {

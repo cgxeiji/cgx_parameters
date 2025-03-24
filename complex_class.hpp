@@ -34,8 +34,9 @@ class complex_class {
                     return n;
                 }
             }
-            n += snprintf(dst + n, size - n, "fn: %s", 
-                    demangle(m_fn.target_type().name()).c_str()
+            n += snprintf(dst + n, size - n, "fn: %s %s", 
+                    demangle(m_fn.target_type().name()).c_str(),
+                    demangle(typeid(*this).name()).c_str()
                 );
             if (n < 0 || static_cast<size_t>(n) >= size) {
                 return n;
