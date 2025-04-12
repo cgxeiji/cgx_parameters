@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "type_name.hpp"
+#include "uid.hpp"
 
 #ifndef CGX_PARAMETER_PRINT_BUFFER_SIZE
 #define CGX_PARAMETER_PRINT_BUFFER_SIZE 128
@@ -146,17 +147,23 @@ class parameter : virtual public parameter_i {
 
 template <>
 inline int parameter<int>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "%d", m_value);
+    return snprintf(dst, size, "%d (%d)", m_value, m_default);
 }
 
 template <>
 inline int parameter<float>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "%f", m_value);
+    return snprintf(dst, size, "%f (%f)", m_value, m_default);
 }
 
 template <>
 inline int parameter<bool>::to_char(char* dst, size_t size) const {
-    return snprintf(dst, size, "%s", m_value ? "true" : "false");
+    return snprintf(
+        dst,
+        size,
+        "%s (%s)",
+        m_value ? "true" : "false",
+        m_default ? "true" : "false"
+    );
 }
 
 template <typename T, size_t N>
@@ -385,7 +392,7 @@ class parameter<char[N]> : virtual public parameter_i {
     }
 
     int to_char(char* dst, size_t size) const override {
-        return snprintf(dst, size, "%s", m_value);
+        return snprintf(dst, size, "%s (%s)", m_value, m_default);
     }
 
     void print() const override {
@@ -404,13 +411,13 @@ class parameter<char[N]> : virtual public parameter_i {
             for (size_t i = 0; i < N; ++i) {
                 if (i % group_size == 0) {
                     n += snprintf(dst + n, sizeof(dst) - n, "   + ");
-                    if (n < 0 || n >= sizeof(dst)) {
+                    if (n < 0 || static_cast<size_t>(n) >= sizeof(dst)) {
                         m_print("error");
                         break;
                     }
                 }
                 n += snprintf(dst + n, sizeof(dst) - n, " %02X", bytes[i]);
-                if (n < 0 || n >= sizeof(dst)) {
+                if (n < 0 || static_cast<size_t>(n) >= sizeof(dst)) {
                     m_print("error");
                     break;
                 }
@@ -510,21 +517,28 @@ class unique_parameter_i
     virtual uint32_t uid() const  = 0;
 };
 
-template <typename T, uint32_t uidT>
+template <typename T>
 class unique_parameter
     : public unique_parameter_i
     , public parameter::parameter<T> {
    public:
     unique_parameter() = default;
-    unique_parameter(std::function<void(const char*)> print, const T& value)
-        : parameter::parameter<T>(print, value) {
+    unique_parameter(
+        std::function<void(const char*)> print,
+        const parameter::uid_t&          uid,
+        const T&                         value
+    )
+        : parameter::parameter<T>(print, value), m_uid(uid) {
     }
     unique_parameter(
         std::function<void(const char*)> print,
         size_t                           lun,
+        const parameter::uid_t&          uid,
         const T&                         value
     )
-        : unique_parameter_i(lun), parameter::parameter<T>(print, value) {
+        : unique_parameter_i(lun)
+        , parameter::parameter<T>(print, value)
+        , m_uid(uid) {
     }
     unique_parameter(const unique_parameter&) = default;
     virtual ~unique_parameter()               = default;
@@ -593,12 +607,12 @@ class unique_parameter
     }
 
     uint32_t uid() const override {
-        return uidT;
+        return m_uid;
     }
 
     int to_char(char* dst, size_t size) const override {
         int n = snprintf(
-            dst, size, "(p%08lX) %s: ", this->uid(), type_name<T>().data()
+            dst, size, "%s %s = ", type_name<T>().data(), this->m_uid.data()
         );
         if (n < 0) {
             return n;
@@ -617,6 +631,9 @@ class unique_parameter
 
         return n;
     }
+
+   private:
+    const parameter::uid_t m_uid{"unnamed"};
 };
 
 template <size_t LUN, size_t N>
@@ -648,26 +665,26 @@ class unique_parameter_list {
         }
     }
 
-    template <uint32_t uidT, typename T>
-    auto& add(const T& value) {
+    template <typename T>
+    auto& add(const std::string_view& name, const T& value) {
+        parameter::uid_t uid(name);
         if (m_size >= m_params.size()) {
             m_size -= 1;
-            m_params[m_size++] = std::make_unique<unique_parameter<T, uidT>>(
-                m_print, LUN, value
-            );
+            m_params[m_size++] =
+                std::make_unique<unique_parameter<T>>(m_print, LUN, uid, value);
             if (m_print) {
                 m_print("parameter list full when adding:");
                 m_params[m_size - 1]->print();
             }
             assert("parameter list full" && m_size < m_params.size());
-            return *reinterpret_cast<unique_parameter<T, uidT>*>(
+            return *reinterpret_cast<unique_parameter<T>*>(
                 m_params[m_size - 1].get()
             );
         }
 
-        auto p = this->find(uidT);
+        auto p = this->find(uid);
         m_params[m_size++] =
-            std::make_unique<unique_parameter<T, uidT>>(m_print, LUN, value);
+            std::make_unique<unique_parameter<T>>(m_print, LUN, uid, value);
 
         if (p != nullptr) {
             if (m_print) {
@@ -676,14 +693,13 @@ class unique_parameter_list {
                 m_params[m_size - 1]->print();
             }
             assert("UID already exists" && p == nullptr);
-            return *reinterpret_cast<unique_parameter<T, uidT>*>(
+            return *reinterpret_cast<unique_parameter<T>*>(
                 m_params[m_size - 1].get()
             );
         }
 
-        return *reinterpret_cast<unique_parameter<T, uidT>*>(
-            m_params[m_size - 1].get()
-        );
+        return *reinterpret_cast<unique_parameter<T>*>(m_params[m_size - 1].get(
+        ));
     }
 
     void reset() {
