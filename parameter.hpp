@@ -15,6 +15,46 @@
 #endif
 
 namespace cgx {
+
+constexpr uint32_t _crc32_single_byte(uint32_t byte) {
+    uint32_t crc = byte;
+    for (int i = 0; i < 8; ++i) {
+        crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return crc;
+}
+
+constexpr std::array<uint32_t, 256> _generate_crc32_table() {
+    std::array<uint32_t, 256> table{};
+    for (uint32_t i = 0; i < 256; ++i) {
+        table[i] = _crc32_single_byte(i);
+    }
+    return table;
+}
+
+constexpr uint32_t _init_crc32() {
+    return 0xFFFFFFFF;
+}
+
+constexpr std::array<uint32_t, 256> _crc32_table = _generate_crc32_table();
+
+constexpr uint32_t _calc_crc(const uint8_t* data, size_t size) {
+    uint32_t crc = _init_crc32();
+    for (size_t i = 0; i < size; ++i) {
+        uint8_t byte = data[i];
+        crc          = (crc >> 8) ^ _crc32_table[(crc ^ byte) & 0xFF];
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
+constexpr uint32_t _calc_crc(uint32_t crc, const uint8_t* data, size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        uint8_t byte = data[i];
+        crc          = (crc >> 8) ^ _crc32_table[(crc ^ byte) & 0xFF];
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
 namespace parameter {
 
 class parameter_i {
@@ -28,6 +68,8 @@ class parameter_i {
     virtual void print() const                         = 0;
 
     virtual void reset() = 0;
+
+    virtual uint32_t get_crc() const = 0;
 
     virtual void on_changed(std::function<void()> callback) {
         m_on_changed = callback;
@@ -65,6 +107,16 @@ class parameter : virtual public parameter_i {
 
     int to_char(char* dst, size_t size) const override {
         return m_value.to_char(dst, size);
+    }
+
+    uint32_t get_crc() const override {
+        uint32_t crc = _init_crc32();
+
+        crc = _calc_crc(
+            crc, reinterpret_cast<const uint8_t*>(&m_value), sizeof(T)
+        );
+
+        return crc;
     }
 
     void print() const override {
@@ -215,6 +267,18 @@ class parameter<std::array<T, N>> : virtual public parameter_i {
             return false;
         }
         return m_value[index].get_bytes(dst, size);
+    }
+
+    uint32_t get_crc() const override {
+        uint32_t crc = _init_crc32();
+
+        for (const auto& value : m_value) {
+            crc = _calc_crc(
+                crc, reinterpret_cast<const uint8_t*>(&value), sizeof(T)
+            );
+        }
+
+        return crc;
     }
 
     int to_char(char* dst, size_t size) const override {
@@ -393,6 +457,14 @@ class parameter<char[N]> : virtual public parameter_i {
 
     int to_char(char* dst, size_t size) const override {
         return snprintf(dst, size, "%s (%s)", m_value, m_default);
+    }
+
+    uint32_t get_crc() const override {
+        uint32_t crc = _init_crc32();
+
+        crc = _calc_crc(crc, reinterpret_cast<const uint8_t*>(m_value), N);
+
+        return crc;
     }
 
     void print() const override {
@@ -663,6 +735,22 @@ class unique_parameter_list {
                 param->print();
             }
         }
+    }
+
+    uint32_t get_crc() const {
+        uint32_t crc = _init_crc32();
+
+        for (const auto& param : m_params) {
+            if (param) {
+                crc = _calc_crc(
+                    crc,
+                    reinterpret_cast<const uint8_t*>(param.get()),
+                    sizeof(*param)
+                );
+            }
+        }
+
+        return crc;
     }
 
     template <typename T>
