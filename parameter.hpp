@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <memory>
 
@@ -81,13 +82,13 @@ class parameter : virtual public parameter_i {
             for (size_t i = 0; i < sizeof(T); ++i) {
                 if (i % group_size == 0) {
                     n += snprintf(dst + n, sizeof(dst) - n, "   + ");
-                    if (n < 0 || n >= sizeof(dst)) {
+                    if (n < 0 || static_cast<size_t>(n) >= sizeof(dst)) {
                         m_print("error");
                         break;
                     }
                 }
                 n += snprintf(dst + n, sizeof(dst) - n, " %02X", bytes[i]);
-                if (n < 0 || n >= sizeof(dst)) {
+                if (n < 0 || static_cast<size_t>(n) >= sizeof(dst)) {
                     m_print("error");
                     break;
                 }
@@ -144,17 +145,17 @@ class parameter : virtual public parameter_i {
 };
 
 template <>
-int parameter<int>::to_char(char* dst, size_t size) const {
+inline int parameter<int>::to_char(char* dst, size_t size) const {
     return snprintf(dst, size, "%d", m_value);
 }
 
 template <>
-int parameter<float>::to_char(char* dst, size_t size) const {
+inline int parameter<float>::to_char(char* dst, size_t size) const {
     return snprintf(dst, size, "%f", m_value);
 }
 
 template <>
-int parameter<bool>::to_char(char* dst, size_t size) const {
+inline int parameter<bool>::to_char(char* dst, size_t size) const {
     return snprintf(dst, size, "%s", m_value ? "true" : "false");
 }
 
@@ -523,7 +524,7 @@ class unique_parameter
         size_t                           lun,
         const T&                         value
     )
-        : parameter::parameter<T>(print, value), unique_parameter_i(lun) {
+        : unique_parameter_i(lun), parameter::parameter<T>(print, value) {
     }
     unique_parameter(const unique_parameter&) = default;
     virtual ~unique_parameter()               = default;
@@ -597,7 +598,7 @@ class unique_parameter
 
     int to_char(char* dst, size_t size) const override {
         int n = snprintf(
-            dst, size, "(p%08X) %s: ", this->uid(), type_name<T>().data()
+            dst, size, "(p%08lX) %s: ", this->uid(), type_name<T>().data()
         );
         if (n < 0) {
             return n;

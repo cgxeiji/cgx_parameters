@@ -64,18 +64,13 @@ constexpr auto type_name() -> std::string_view {
 
 std::string demangle(const char* name);
 
-template <class T>
-std::string type(const T& t) {
-    return demangle(typeid(t).name());
-}
-
 #ifdef __GNUG__
 #include <cxxabi.h>
 
 #include <cstdlib>
 #include <memory>
 
-std::string demangle(const char* name) {
+inline std::string demangle(const char* name) {
     int                                    status = -1;
     std::unique_ptr<char, void (*)(void*)> res{
         abi::__cxa_demangle(name, NULL, NULL, &status), std::free
@@ -87,8 +82,25 @@ std::string demangle(const char* name) {
 #else
 
 // does nothing if not g++
-std::string demangle(const char* name) {
+inline std::string demangle(const char* name) {
     return name;
 }
+
+// check if rtti is available
+#ifdef __RTTI
+
+template <class T>
+inline std::string type(const T& t) {
+    return demangle(typeid(t).name());
+}
+
+#else
+
+template <class T>
+inline std::string type(const T&) {
+    return type_name<T>().data();
+}
+
+#endif  // __RTTI
 
 #endif
